@@ -1,4 +1,4 @@
-# クイズ🪼　-ビリオネア-（四択クイズ）
+# クイズ🪼†-ビリオネア-†
 Vue 3 + TypeScript + PHP + MySQL を使った四択クイズアプリ。  
 SQL の基本操作（CRUD・JOIN・制約・ランダム抽出など）を学ぶことを目的にしています。
 プレイヤー側からもクイズを新規で登録可能
@@ -29,8 +29,8 @@ SQL の基本操作（CRUD・JOIN・制約・ランダム抽出など）を学�
 4. `/api/answers/check` で正誤判定できる  
 
 ## 📂 ディレクトリ構成（予定）
-quiz-sql/
-backend/ # PHP(API)
-frontend/ # Vue(フロント)
-db/init/ # 初期SQL
-docker-compose.yml
+- quiz-sql/
+- backend/ # PHP(API)
+- frontend/ # Vue(フロント)
+- db/init/ # 初期SQL
+- docker-compose.yml
