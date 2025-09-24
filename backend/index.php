@@ -13,22 +13,42 @@
  */
 
 // backend/index.php
+// 本番では画面にエラーを出さない（ログにだけ出す）※開発中は必要に応じて切り替え
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
 require __DIR__ . '/db.php';
 
-// CORSプリフライト
-// --- CORS のプリフライト(OPTIONS)は中身なしでOKを返す ---
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+// CORSプリフライト（最初にヘッダを返して即終了）
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: GET,POST,OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type');
     exit;
 }
 
-// リクエストパスとメソッドを取得
-$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+// ★ ここで初めて $path / $method を決める（以後どのルートでも使える）
+$path   = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+if ($path === '/debug/title-bytes') {
+    $pdo = db();
+    $row = $pdo->query("SELECT title, HEX(title) AS hex FROM questions LIMIT 1")->fetch();
+    json_response($row ?: []);
+}
+
 try {
+    // --- 文字コード診断ルート（あとで消してOK） ---
+    if ($path === '/debug/charset') {
+        $pdo = db();
+        $vars  = $pdo->query("SHOW VARIABLES LIKE 'character_set_%'")->fetchAll();
+        $vars2 = $pdo->query("SHOW VARIABLES LIKE 'collation_%'")->fetchAll();
+        json_response(['character_set' => $vars, 'collation' => $vars2]);
+    }
+
+
+
+
     /**
      * GET /health
      * システム起動確認用の軽いエンドポイント
