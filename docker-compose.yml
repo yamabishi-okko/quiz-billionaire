@@ -1,19 +1,28 @@
+# --------------------------------------------
+# docker-compose.yml
+# 役割:
+#   - 2つのサービス (app=PHP+Apache, db=MySQL) をまとめて起動/停止
+#   - ネットワークとボリューム（DB永続化）も管理
+# メモ:
+#   - version 行は新しい Compose では省略可（警告が出るだけ）
+# --------------------------------------------
+
 version: "3.9"
 services:
   app:
-    build: ./backend
+    build: ./backend  # backend/Dockerfile を使ってビルド
     container_name: quizsql-php
     ports:
-      - "3001:80"          # API: http://localhost:3001
+      - "3001:80"          # API: http://localhost:3001 -> Apache(80)
     environment:
       - DB_HOST=db
-      - DB_PORT=3306
+      - DB_PORT=3306   # 下の "db" サービスがDNS名になる
       - DB_NAME=quizdb
       - DB_USER=quizuser
       - DB_PASS=quizpass
       - TZ=Asia/Tokyo
     depends_on:
-      - db
+      - db   # 起動順だけ保証（ready までは保証しない）
 
   db:
     image: mysql:8.0
@@ -25,10 +34,10 @@ services:
       - MYSQL_PASSWORD=quizpass
       - TZ=Asia/Tokyo
     ports:
-      - "3307:3306"        # 既存の3306と同時起動でも衝突しない
+      - "3307:3306"        # 既存の3306と同時起動でも衝突しない # ローカル3307 -> コンテナ3306
     volumes:
-      - dbdata:/var/lib/mysql
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - dbdata:/var/lib/mysql  # データ永続化
+      - ./db/init:/docker-entrypoint-initdb.d:ro # 初期SQLを自動実行
 
 volumes:
   dbdata:

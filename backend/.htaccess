@@ -1,0 +1,13 @@
+# --------------------------------------------
+# .htaccess
+# 役割:
+#   - 物理ファイルが無いURLは、ぜんぶ index.php に集約
+#   - これで「/api/...」というURLをPHP側の分岐で処理できる
+# --------------------------------------------
+
+# backend/.htaccess
+RewriteEngine On
+# 既存ファイル/ディレクトリ以外は index.php へ
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
