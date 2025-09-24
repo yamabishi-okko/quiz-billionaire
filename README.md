@@ -34,3 +34,8 @@ SQL の基本操作（CRUD・JOIN・制約・ランダム抽出など）を学�
 - frontend/ # Vue(フロント)
 - db/init/ # 初期SQL
 - docker-compose.yml
+
+
+## 起動方法　（適宜更新予定）
+1. リポジトリ直下で
+   ```docker compose up -d```
