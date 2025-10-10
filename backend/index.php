@@ -128,6 +128,75 @@ try {
         ]);
     }
 
+        /**
+     * POST /api/questions/create
+     * 1問＋4択を登録（トランザクション）
+     * 入力: { title:string, choices:[{ body:string, is_correct:bool }] (4件) }
+     * 成功: 201 { id: 新規question_id, created: true }
+     */
+    if ($path === '/api/questions/create' && $method === 'POST') {
+        $pdo = db();
+
+        // JSON読む
+        $raw = file_get_contents('php://input');
+        $input = json_decode($raw, true);
+
+        // ------- バリデーション -------
+        if (!is_array($input)) {
+            json_response(['message' => 'invalid json'], 422);
+        }
+        $title = isset($input['title']) ? trim((string)$input['title']) : '';
+        $choices = $input['choices'] ?? null;
+
+        if ($title === '') {
+            json_response(['message' => 'title required'], 422);
+        }
+        if (!is_array($choices) || count($choices) !== 4) {
+            json_response(['message' => 'choices must be an array of length 4'], 422);
+        }
+
+        $correctCount = 0;
+        foreach ($choices as $i => $c) {
+            if (!is_array($c)) {
+                json_response(['message' => "choices[$i] invalid"], 422);
+            }
+            $body = isset($c['body']) ? trim((string)$c['body']) : '';
+            $isCorrect = (bool)($c['is_correct'] ?? false);
+            if ($body === '') {
+                json_response(['message' => "choices[$i].body required"], 422);
+            }
+            if ($isCorrect) $correctCount++;
+        }
+        if ($correctCount !== 1) {
+            json_response(['message' => 'exactly one choice must be correct'], 422);
+        }
+
+        // ------- 登録（トランザクション） -------
+        try {
+            $pdo->beginTransaction();
+
+            // 1) questions
+            $stQ = $pdo->prepare("INSERT INTO questions (title) VALUES (?)");
+            $stQ->execute([$title]);
+            $qid = (int)$pdo->lastInsertId();
+
+            // 2) choices
+            $stC = $pdo->prepare("INSERT INTO choices (question_id, body, is_correct) VALUES (?, ?, ?)");
+            foreach ($choices as $c) {
+                $stC->execute([$qid, trim((string)$c['body']), (int)!empty($c['is_correct'])]);
+            }
+
+            $pdo->commit();
+            http_response_code(201);
+            json_response(['id' => $qid, 'created' => true], 201);
+
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            json_response(['message' => 'server error', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+
     // どのルートにも一致しない場合
     // ここまでマッチしなければ404
     json_response(['message' => 'not found'], 404);
