@@ -30,7 +30,7 @@ ALTER TABLE `choices`
   ADD UNIQUE KEY `uq_choices_one_correct_per_question` (`correct_qid`);
 
 -- サンプルデータ
-INSERT INTO `questions` (`title`) VALUES ('HTTPの既定ポート番号はどれ？');
+INSERT INTO `questions` (`title`) VALUES (_utf8mb4'HTTPの既定ポート番号はどれ？');
 
 INSERT INTO `choices` (`question_id`, `body`, `is_correct`) VALUES
 (1, '21', 0),
