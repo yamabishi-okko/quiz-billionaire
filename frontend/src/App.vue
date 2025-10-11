@@ -156,119 +156,122 @@ watch(tab, (v) => {
 
 <template>
   <div class="millionaire">
-    <!-- 右上 HUD -->
-    <div class="hud-left">
-      <div class="trial">T R I A L</div>
-      <div class="money-badge"><span class="money-text">¥100,000,000,000</span></div>
-      <nav class="lifelines">
-        <button :class="{active: tab==='play'}"   @click="tab='play'">プレイ</button>
-        <button :class="{active: tab==='create'}" @click="tab='create'">作問</button>
-        <button :class="{active: tab==='manage'}" @click="tab='manage'">管理</button>
-      </nav>
-    </div>
-
-    <!-- ======= プレイ ======= -->
-    <section v-if="tab==='play'" class="stage bottom">
-      <div class="row ctr">
-        <button class="primary" @click="fetchRandom" :disabled="loading">
-          {{ loading ? '読み込み中…' : 'ランダムで1問' }}
-        </button>
+  <!-- 画面サイズに依存しない中央フレーム -->
+    <div class="frame">
+      <!-- 左上 HUD -->
+      <div class="hud-left">
+        <div class="trial">T R I A L</div>
+        <div class="money-badge"><span class="money-text">¥100,000,000,000</span></div>
+        <nav class="lifelines">
+          <button :class="{active: tab==='play'}"   @click="tab='play'">プレイ</button>
+          <button :class="{active: tab==='create'}" @click="tab='create'">作問</button>
+          <button :class="{active: tab==='manage'}" @click="tab='manage'">管理</button>
+        </nav>
       </div>
 
-      <div v-if="data" class="board">
-        <div class="prompt">
-          Q{{ data.question.id }}．{{ data.question.title }}
-        </div>
-
-        <ul class="answers">
-          <li v-for="(c,i) in data.choices" :key="c.id">
-            <!-- ダイヤ形ボタン -->
-            <button
-              class="diamond"
-              :class="{ selected: selectedChoiceId===c.id }"
-              @click="selectedChoiceId = c.id"
-            >
-              <span class="label">{{ 'ABCD'[i] }}</span>
-              <span class="text">{{ c.body }}</span>
-            </button>
-          </li>
-        </ul>
-
+      <!-- ======= プレイ ======= -->
+      <section v-if="tab==='play'" class="stage bottom">
         <div class="row ctr">
-          <button class="primary" @click="checkAnswer" :disabled="selectedChoiceId==null">
-            ファイナルアンサー？
+          <button class="primary" @click="fetchRandom" :disabled="loading">
+            {{ loading ? '読み込み中…' : 'ランダムで1問' }}
           </button>
         </div>
 
-        <p v-if="result" class="result">
-          <strong v-if="result.correct" class="ok">正解！</strong>
-          <strong v-else class="ng">残念…</strong>
-          <span v-if="result.answer">&nbsp;（正解：{{ result.answer.body }}）</span>
-        </p>
-      </div>
+        <div v-if="data" class="board">
+          <div class="prompt">
+            Q{{ data.question.id }}．{{ data.question.title }}
+          </div>
 
-      <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
-      <p class="hint">まずは右上のボタンで「プレイ」を選び、「ランダムで1問」を押してね。</p>
-    </section>
+          <ul class="answers">
+            <li v-for="(c,i) in data.choices" :key="c.id">
+              <!-- ダイヤ形ボタン -->
+              <button
+                class="diamond"
+                :class="{ selected: selectedChoiceId===c.id }"
+                @click="selectedChoiceId = c.id"
+              >
+                <span class="label">{{ 'ABCD'[i] }}</span>
+                <span class="text">{{ c.body }}</span>
+              </button>
+            </li>
+          </ul>
 
-    <!-- ======= 作問 ======= -->
-    <section v-else-if="tab==='create'" class="panel">
-      <h2>新しい問題を作る</h2>
+          <div class="row ctr">
+            <button class="primary" @click="checkAnswer" :disabled="selectedChoiceId==null">
+              ファイナルアンサー？
+            </button>
+          </div>
 
-      <label class="block">
-        <span>タイトル</span>
-        <input v-model="title" placeholder="例）HTTPはどの階層のプロトコル？">
-      </label>
-
-      <div class="choices-form">
-        <div v-for="(c,i) in choices" :key="i" class="choice-row">
-          <input v-model="c.body" :placeholder="`選択肢${i+1}`">
-          <label class="radio">
-            <input type="radio" name="correct" :checked="c.is_correct" @change="markCorrect(i)">
-            正解
-          </label>
+          <p v-if="result" class="result">
+            <strong v-if="result.correct" class="ok">正解！</strong>
+            <strong v-else class="ng">残念…</strong>
+            <span v-if="result.answer">&nbsp;（正解：{{ result.answer.body }}）</span>
+          </p>
         </div>
-      </div>
 
-      <div class="row ctr">
-        <button class="primary" @click="submitCreate" :disabled="creating">登録する</button>
-      </div>
-      <p v-if="createMsg" class="msg">{{ createMsg }}</p>
-    </section>
+        <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
+        <p class="hint">まずは右上のボタンで「プレイ」を選び、「ランダムで1問」を押してね。</p>
+      </section>
 
-    <!-- ======= 管理（一覧＋削除） ======= -->
-    <section v-else class="panel">
-      <div class="panel-head">
-        <h2>問題一覧</h2>
-        <div class="tools">
-          <button @click="fetchQuestions" :disabled="loadingList">再読み込み</button>
-          <span class="muted">{{ total }}件</span>
+      <!-- ======= 作問 ======= -->
+      <section v-else-if="tab==='create'" class="panel">
+        <h2>新しい問題を作る</h2>
+
+        <label class="block">
+          <span>タイトル</span>
+          <input v-model="title" placeholder="例）HTTPはどの階層のプロトコル？">
+        </label>
+
+        <div class="choices-form">
+          <div v-for="(c,i) in choices" :key="i" class="choice-row">
+            <input v-model="c.body" :placeholder="`選択肢${i+1}`">
+            <label class="radio">
+              <input type="radio" name="correct" :checked="c.is_correct" @change="markCorrect(i)">
+              正解
+            </label>
+          </div>
         </div>
-      </div>
 
-      <p v-if="listError" class="error">{{ listError }}</p>
+        <div class="row ctr">
+          <button class="primary" @click="submitCreate" :disabled="creating">登録する</button>
+        </div>
+        <p v-if="createMsg" class="msg">{{ createMsg }}</p>
+      </section>
 
-      <div class="table-wrap" v-if="list.length">
-        <table class="tbl">
-          <thead>
-            <tr>
-              <th>ID</th><th>タイトル</th><th>選択肢数</th><th>作成日時</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in list" :key="row.id">
-              <td>{{ row.id }}</td>
-              <td>{{ row.title }}</td>
-              <td>{{ row.choices_count }}</td>
-              <td>{{ new Date(row.created_at).toLocaleString() }}</td>
-              <td><button class="danger" @click="deleteQuestion(row.id)">削除</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- ======= 管理（一覧＋削除） ======= -->
+      <section v-else class="panel">
+        <div class="panel-head">
+          <h2>問題一覧</h2>
+          <div class="tools">
+            <button @click="fetchQuestions" :disabled="loadingList">再読み込み</button>
+            <span class="muted">{{ total }}件</span>
+          </div>
+        </div>
 
-      <p v-else class="hint">まだ問題がありません。</p>
-    </section>
+        <p v-if="listError" class="error">{{ listError }}</p>
+
+        <div class="table-wrap" v-if="list.length">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>ID</th><th>タイトル</th><th>選択肢数</th><th>作成日時</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in list" :key="row.id">
+                <td>{{ row.id }}</td>
+                <td>{{ row.title }}</td>
+                <td>{{ row.choices_count }}</td>
+                <td>{{ new Date(row.created_at).toLocaleString() }}</td>
+                <td><button class="danger" @click="deleteQuestion(row.id)">削除</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p v-else class="hint">まだ問題がありません。</p>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -285,6 +288,14 @@ body::before{
     radial-gradient(ellipse at center, rgba(8,12,30,.1) 0%, rgba(0,0,0,.1) 70%),
     rgba(0,0,0,0);
   pointer-events:none;
+}
+.frame{
+  width: min(1120px, 92vw);
+  margin: 0 auto;             /* 画面中央に配置 */
+  min-height: 100vh;
+  position: relative;         /* 基準 */
+  /* ← HUD を fixed にするので、下の内容が HUD に隠れないよう上に余白を確保 */
+  padding-top: 120px;
 }
 </style>
 
@@ -312,9 +323,12 @@ body::before{
   z-index: 10;
 }
 .hud-left{
-  position: absolute; top:14px; left:16px;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-560px);
   display:flex; flex-direction:column; align-items:center;
-  gap:10px; z-index:10;
+  gap:10px; z-index: 50;
 }
 .trial{
   letter-spacing:.55em; color:#9fb6ff; font-weight:700;
@@ -323,7 +337,10 @@ body::before{
 }
 /* 賞金バッジ（ダイヤ） */
 .money-badge{
-  position: relative; height: 44px; min-width: 280px; padding:0 0px;
+  position: relative; height: 44px;
+  /* 横に広がり過ぎないよう適度に制限 */
+  width: clamp(280px, 60%, 520px);
+  padding: 0 0px;
   display:flex; align-items:center; justify-content:center;
   background: linear-gradient(180deg,#2b2f55,#1f2446);
   border:1px solid #5a6bff33; border-radius: 12px;
@@ -359,7 +376,7 @@ body::before{
 }
 .lifelines button{
   --ring:#8ad3ff;
-  height:36px; padding:0 16px;
+  height:36px; padding:0 12px;
   display:inline-flex; align-items:center; justify-content:center;
   border-radius:999px; font-weight:700; letter-spacing:.04em;
   background: rgba(8,12,30,.52);
@@ -385,8 +402,8 @@ body::before{
 
 /* ========== プレイ面 ========== */
 .stage{
-  max-width: 920px;
-  margin: 110px auto 40px; /* 背景を広く見せる */
+    margin: 120px auto 40px;
+    width: 100%;
 }
 .row{ margin:14px 0; }
 .row.ctr{ display:flex; justify-content:center; }
@@ -402,6 +419,9 @@ body::before{
 
 /* 問題文帯（これは残す＝青い帯） */
 .prompt{
+  /* 問題帯もフレーム幅に合わせて伸び過ぎない */
+  max-width: 980px;
+  margin: 0 auto 18px;
   text-align:center; font-weight:800; font-size:22px; letter-spacing:.02em;
   /* background: linear-gradient(180deg,#1f3f9c,#122a70); */
   background: #000;
@@ -413,6 +433,7 @@ body::before{
 /* ダイヤの選択肢（そのまま残す） */
 .answers{
   list-style:none; padding:0; margin:0 0 10px;
+  max-width: 980px;
   display:grid; grid-template-columns:1fr 1fr; gap:18px;
 }
 .answers li{ display:flex; justify-content:center; }
@@ -447,7 +468,9 @@ body::before{
 
 /* ========== 作問/管理（枠を消して透過） ========== */
 .panel{
-  max-width:920px; margin:150px auto 40px;
+  max-width: 980px;
+  /* 上側の余白は .frame の padding-top に任せる */
+  margin: 24px auto 40px;
   background: transparent; border: none; padding: 0;
 }
 .panel-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
@@ -533,4 +556,16 @@ button.danger{ background:#3a0f1a; border:1px solid #7a1f2f; color:#ffd4d8; bord
 .tabs.vertical button::before{ left:-7px;  border-right:none; }
 .tabs.vertical button::after { right:-7px; border-left:none;  }
 
+/* 小さめ画面の微調整 */
+@media (max-width: 640px){
+  .answers{ grid-template-columns: 1fr; }
+  .money-badge{ width: clamp(240px, 80vw, 440px); }
+  .trial{ letter-spacing:.45em; }
+}
+@media (max-width: 1120px){
+  .hud-left{
+    left: 8px;
+    transform: none;
+  }
+}
 </style>
