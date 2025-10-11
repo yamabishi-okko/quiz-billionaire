@@ -290,11 +290,12 @@ body::before{
   pointer-events:none;
 }
 .frame{
-  /* 1120px を上限に、画面が小さいときは 92vw まで縮む */
   width: min(1120px, 92vw);
   margin: 0 auto;             /* 画面中央に配置 */
   min-height: 100vh;
-  position: relative;         /* 内側の absolute の基準にする */
+  position: relative;         /* 基準 */
+  /* ← HUD を fixed にするので、下の内容が HUD に隠れないよう上に余白を確保 */
+  padding-top: 120px;
 }
 </style>
 
@@ -322,9 +323,12 @@ body::before{
   z-index: 10;
 }
 .hud-left{
-  position: absolute; top:12px; left:8px;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-560px);
   display:flex; flex-direction:column; align-items:center;
-  gap:10px; z-index:10;
+  gap:10px; z-index: 50;
 }
 .trial{
   letter-spacing:.55em; color:#9fb6ff; font-weight:700;
@@ -465,7 +469,8 @@ body::before{
 /* ========== 作問/管理（枠を消して透過） ========== */
 .panel{
   max-width: 980px;
-  margin: 120px auto 40px;
+  /* 上側の余白は .frame の padding-top に任せる */
+  margin: 24px auto 40px;
   background: transparent; border: none; padding: 0;
 }
 .panel-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
@@ -556,5 +561,11 @@ button.danger{ background:#3a0f1a; border:1px solid #7a1f2f; color:#ffd4d8; bord
   .answers{ grid-template-columns: 1fr; }
   .money-badge{ width: clamp(240px, 80vw, 440px); }
   .trial{ letter-spacing:.45em; }
+}
+@media (max-width: 1120px){
+  .hud-left{
+    left: 8px;
+    transform: none;
+  }
 }
 </style>
