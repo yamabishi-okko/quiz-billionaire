@@ -22,8 +22,9 @@ require __DIR__ . '/db.php';
 // CORSプリフライト（最初にヘッダを返して即終了）
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: GET,POST,OPTIONS');
+    header('Access-Control-Allow-Methods: GET,POST,DELETE,OPTIONS'); // ← DELETE を追加
     header('Access-Control-Allow-Headers: Content-Type');
+    http_response_code(204); // ボディ無しを明示（任意だが推奨）
     exit;
 }
 
@@ -195,6 +196,64 @@ try {
             json_response(['message' => 'server error', 'error' => $e->getMessage()], 500);
         }
     }
+
+     /**
+     * GET /api/questions?limit=50&offset=0
+     * 質問一覧（新しい順）。choices_countも付与。
+     * レスポンス: { items: [...], total: number }
+     */
+    if ($path === '/api/questions' && $method === 'GET') {
+        $pdo = db();
+
+        $limit  = isset($_GET['limit'])  ? max(1, min(100, (int)$_GET['limit'])) : 50;
+        $offset = isset($_GET['offset']) ? max(0, (int)$_GET['offset']) : 0;
+
+        // 合計件数
+        $total = (int)$pdo->query("SELECT COUNT(*) FROM questions")->fetchColumn();
+
+        // 一覧（選択肢数つき）
+        $sql = "
+            SELECT q.id, q.title, q.created_at, q.updated_at,
+                   (SELECT COUNT(*) FROM choices c WHERE c.question_id = q.id) AS choices_count
+            FROM questions q
+            ORDER BY q.id DESC
+            LIMIT :limit OFFSET :offset
+        ";
+        $st = $pdo->prepare($sql);
+        $st->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $st->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $st->execute();
+        $items = $st->fetchAll();
+
+        json_response(['items' => $items, 'total' => $total]);
+    }
+
+        /**
+     * DELETE /api/questions/{id}
+     * 質問と紐づく選択肢をまとめて削除
+     * レスポンス: { deleted: true }
+     */
+    if (preg_match('#^/api/questions/(\d+)$#', $path, $m) && $method === 'DELETE') {
+        $pdo = db();
+        $qid = (int)$m[1];
+        if ($qid <= 0) json_response(['message' => 'bad request'], 400);
+
+        try {
+            $pdo->beginTransaction();
+            $st1 = $pdo->prepare("DELETE FROM choices WHERE question_id = ?");
+            $st1->execute([$qid]);
+            $st2 = $pdo->prepare("DELETE FROM questions WHERE id = ?");
+            $st2->execute([$qid]);
+            $pdo->commit();
+
+            // 影響行数が0でも 404 にせず idempotent に 200 を返す運用もあり
+            json_response(['deleted' => true]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            json_response(['message' => 'server error', 'error' => $e->getMessage()], 500);
+        }
+    }
+
 
 
     // どのルートにも一致しない場合

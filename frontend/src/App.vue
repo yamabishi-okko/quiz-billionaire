@@ -1,5 +1,45 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+
+type QuestionRow = { id:number; title:string; created_at:string; updated_at:string; choices_count:number }
+
+const tab = ref<'play' | 'create' | 'manage'>('play')
+
+// ------- 一覧（管理） -------
+const list = ref<QuestionRow[]>([])
+const total = ref(0)
+const limit = ref(20)
+const offset = ref(0)
+const loadingList = ref(false)
+const listError = ref<string | null>(null)
+
+async function fetchQuestions() {
+  loadingList.value = true
+  listError.value = null
+  try {
+    const r = await fetch(`${API}/api/questions?limit=${limit.value}&offset=${offset.value}`)
+    if (!r.ok) throw new Error(`failed: ${r.status}`)
+    const data = await r.json()
+    list.value = data.items
+    total.value = data.total
+  } catch (e:any) {
+    listError.value = e?.message ?? '一覧の取得に失敗しました'
+  } finally {
+    loadingList.value = false
+  }
+}
+
+async function deleteQuestion(id:number) {
+  if (!confirm(`本当に削除しますか？ (ID: ${id})`)) return
+  try {
+    const r = await fetch(`${API}/api/questions/${id}`, { method: 'DELETE' })
+    if (!r.ok) throw new Error(`failed: ${r.status}`)
+    // 再取得
+    await fetchQuestions()
+  } catch (e:any) {
+    alert(e?.message ?? '削除に失敗しました')
+  }
+}
 
 /** 型 */
 type Question = { id: number; title: string }
@@ -9,9 +49,6 @@ type CheckResponse  = { correct: boolean; answer?: { id:number; body:string } }
 
 /** APIベースURL（.env.development の VITE_API_BASE を利用） */
 const API = import.meta.env.VITE_API_BASE as string
-
-/** タブ切替 */
-const tab = ref<'play' | 'create'>('play')
 
 /* ===================== プレイ（出題） ===================== */
 const loading = ref(false)
@@ -111,6 +148,10 @@ async function submitCreate() {
     creating.value = false
   }
 }
+
+watch(tab, (v) => {
+  if (v === 'manage') fetchQuestions()
+})
 </script>
 
 <template>
@@ -120,6 +161,7 @@ async function submitCreate() {
       <nav class="tabs">
         <button :class="{active: tab==='play'}" @click="tab='play'">プレイ</button>
         <button :class="{active: tab==='create'}" @click="tab='create'">作問</button>
+        <button :class="{active: tab==='manage'}" @click="tab='manage'">管理</button> <!-- 追加 -->
       </nav>
     </header>
 
@@ -158,7 +200,7 @@ async function submitCreate() {
     </section>
 
     <!-- ============ 作問 ============ -->
-    <section v-else class="card">
+    <section v-if="tab==='create'" class="card">
       <h2>新しい問題を作る</h2>
 
       <label class="block">
@@ -180,6 +222,46 @@ async function submitCreate() {
         <button @click="submitCreate" :disabled="creating">登録する</button>
       </div>
       <p v-if="createMsg" class="msg">{{ createMsg }}</p>
+    </section>
+
+    <!-- ============ 管理（一覧＋削除） ============ -->
+    <section v-if="tab==='manage'" class="card">
+      <div class="row" style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;">問題一覧</h2>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button @click="fetchQuestions" :disabled="loadingList">再読み込み</button>
+          <span style="color:#9ca3af; font-size:13px;">{{ total }}件</span>
+        </div>
+      </div>
+
+      <p v-if="listError" class="error">{{ listError }}</p>
+
+      <div class="table-wrap" v-if="list.length">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width:80px;">ID</th>
+              <th>タイトル</th>
+              <th style="width:120px;">選択肢数</th>
+              <th style="width:180px;">作成日時</th>
+              <th style="width:120px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in list" :key="row.id">
+              <td>{{ row.id }}</td>
+              <td>{{ row.title }}</td>
+              <td>{{ row.choices_count }}</td>
+              <td>{{ new Date(row.created_at).toLocaleString() }}</td>
+              <td>
+                <button @click="deleteQuestion(row.id)">削除</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p v-else class="hint">まだ問題がありません。</p>
     </section>
   </div>
 </template>
@@ -227,4 +309,11 @@ ul.choices li { margin:8px 0; }
 }
 .radio { display:flex; align-items:center; gap:6px; color:#e5e7eb; }
 .msg { color:#a7f3d0; } /* 成功メッセージは薄いグリーン */
+
+/* 表 */
+.table-wrap { overflow:auto; margin-top: 8px; }
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th, .tbl td { border:1px solid #3a3f45; padding:8px 10px; text-align:left; }
+.tbl thead th { background:#111318; color:#e5e7eb; position: sticky; top: 0; }
+.tbl tbody tr:hover { background: #23262a; }
 </style>
