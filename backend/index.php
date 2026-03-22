@@ -72,8 +72,30 @@ try {
     if ($path === '/api/questions/random' && $method === 'GET') {
         $pdo = db();
 
-        // ランダムに1問
-        $q = $pdo->query("SELECT id, title FROM questions ORDER BY RAND() LIMIT 1")->fetch();
+        // ?exclude=1,2,3 で出題済みIDを除外（アドベンチャーモード用）
+        $excludeIds = [];
+        if (!empty($_GET['exclude'])) {
+            foreach (explode(',', $_GET['exclude']) as $raw) {
+                $id = (int)trim($raw);
+                if ($id > 0) $excludeIds[] = $id;
+            }
+        }
+
+        if (!empty($excludeIds)) {
+            $placeholders = implode(',', array_fill(0, count($excludeIds), '?'));
+            $st = $pdo->prepare(
+                "SELECT id, title FROM questions WHERE id NOT IN ($placeholders) ORDER BY RAND() LIMIT 1"
+            );
+            $st->execute(array_values($excludeIds));
+            $q = $st->fetch();
+            // 全問出題済みなら除外なしで選ぶ（問題数がラダー段数より少ない場合の安全網）
+            if (!$q) {
+                $q = $pdo->query("SELECT id, title FROM questions ORDER BY RAND() LIMIT 1")->fetch();
+            }
+        } else {
+            $q = $pdo->query("SELECT id, title FROM questions ORDER BY RAND() LIMIT 1")->fetch();
+        }
+
         if (!$q) json_response(['message' => 'no questions'], 404);
 
         // 選択肢をランダム順で
@@ -82,8 +104,8 @@ try {
         $choices = $st->fetchAll();
 
         json_response([
-            'question' => $q,            // { id, title }
-            'choices'  => $choices,      // [{ id, body }, ...]
+            'question' => $q,
+            'choices'  => $choices,
         ]);
     }
 

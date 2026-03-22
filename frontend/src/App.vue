@@ -1,17 +1,45 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 
 type QuestionRow = { id:number; title:string; created_at:string; updated_at:string; choices_count:number }
+type Question     = { id: number; title: string }
+type Choice       = { id?: number; body: string; is_correct: boolean }
+type RandomResponse = { question: Question; choices: { id:number; body:string }[] }
+type CheckResponse  = { correct: boolean; answer?: { id:number; body:string } }
 
-const tab = ref<'play' | 'create' | 'manage'>('play')
+const API = import.meta.env.VITE_API_BASE as string
 
-// ------- 一覧（管理） -------
-const list = ref<QuestionRow[]>([])
-const total = ref(0)
-const limit = ref(20)
-const offset = ref(0)
+// ===================== アドベンチャーモード =====================
+const MONEY_LADDER = [
+  0, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000,
+  50_000_000, 100_000_000, 500_000_000, 1_000_000_000,
+  5_000_000_000, 10_000_000_000, 25_000_000_000,
+  50_000_000_000, 75_000_000_000, 100_000_000_000,
+]
+
+const adventureLevel = ref(0)
+const seenIds        = ref<Set<number>>(new Set())
+
+const currentMoney = computed((): number => MONEY_LADDER[adventureLevel.value] ?? 0)
+const isMaxLevel   = computed(() => adventureLevel.value >= MONEY_LADDER.length - 1)
+
+function formatMoney(n: number): string {
+  return '¥' + n.toLocaleString('ja-JP')
+}
+
+// ===================== 一覧（管理） =====================
+const tab         = ref<'play' | 'create' | 'manage'>('play')
+const list        = ref<QuestionRow[]>([])
+const total       = ref(0)
+const limit       = ref(20)
+const offset      = ref(0)
 const loadingList = ref(false)
-const listError = ref<string | null>(null)
+const listError   = ref<string | null>(null)
+
+const currentPage = computed(() => Math.floor(offset.value / limit.value) + 1)
+const totalPages  = computed(() => Math.ceil(total.value / limit.value))
+const hasPrev     = computed(() => offset.value > 0)
+const hasNext     = computed(() => offset.value + limit.value < total.value)
 
 async function fetchQuestions() {
   loadingList.value = true
@@ -19,9 +47,9 @@ async function fetchQuestions() {
   try {
     const r = await fetch(`${API}/api/questions?limit=${limit.value}&offset=${offset.value}`)
     if (!r.ok) throw new Error(`failed: ${r.status}`)
-    const data = await r.json()
-    list.value = data.items
-    total.value = data.total
+    const d = await r.json()
+    list.value  = d.items
+    total.value = d.total
   } catch (e:any) {
     listError.value = e?.message ?? '一覧の取得に失敗しました'
   } finally {
@@ -29,43 +57,49 @@ async function fetchQuestions() {
   }
 }
 
+function prevPage() {
+  if (!hasPrev.value) return
+  offset.value -= limit.value
+  fetchQuestions()
+}
+
+function nextPage() {
+  if (!hasNext.value) return
+  offset.value += limit.value
+  fetchQuestions()
+}
+
 async function deleteQuestion(id:number) {
   if (!confirm(`本当に削除しますか？ (ID: ${id})`)) return
   try {
     const r = await fetch(`${API}/api/questions/${id}`, { method: 'DELETE' })
     if (!r.ok) throw new Error(`failed: ${r.status}`)
-    // 再取得
     await fetchQuestions()
   } catch (e:any) {
     alert(e?.message ?? '削除に失敗しました')
   }
 }
 
-/** 型 */
-type Question = { id: number; title: string }
-type Choice   = { id?: number; body: string; is_correct: boolean }
-type RandomResponse = { question: Question; choices: { id:number; body:string }[] }
-type CheckResponse  = { correct: boolean; answer?: { id:number; body:string } }
-
-/** APIベースURL（.env.development の VITE_API_BASE を利用） */
-const API = import.meta.env.VITE_API_BASE as string
-
-/* ===================== プレイ（出題） ===================== */
-const loading = ref(false)
-const data = ref<RandomResponse | null>(null)
+// ===================== プレイ（出題） =====================
+const loading          = ref(false)
+const data             = ref<RandomResponse | null>(null)
 const selectedChoiceId = ref<number | null>(null)
-const result = ref<CheckResponse | null>(null)
-const errorMsg = ref<string | null>(null)
+const result           = ref<CheckResponse | null>(null)
+const errorMsg         = ref<string | null>(null)
 
 async function fetchRandom() {
-  loading.value = true
-  result.value = null
+  loading.value          = true
+  result.value           = null
   selectedChoiceId.value = null
-  errorMsg.value = null
+  errorMsg.value         = null
   try {
-    const r = await fetch(`${API}/api/questions/random`)
+    const exclude = seenIds.value.size > 0
+      ? `?exclude=${[...seenIds.value].join(',')}`
+      : ''
+    const r = await fetch(`${API}/api/questions/random${exclude}`)
     if (!r.ok) throw new Error(`failed: ${r.status}`)
     data.value = await r.json()
+    seenIds.value.add(data.value!.question.id)
   } catch (e:any) {
     errorMsg.value = e?.message ?? '取得に失敗しました'
   } finally {
@@ -82,38 +116,55 @@ async function checkAnswer() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         question_id: data.value.question.id,
-        choice_id: selectedChoiceId.value
-      })
+        choice_id:   selectedChoiceId.value,
+      }),
     })
     if (!r.ok) throw new Error(`failed: ${r.status}`)
     result.value = await r.json()
+
+    if (result.value!.correct) {
+      if (!isMaxLevel.value) adventureLevel.value++
+    } else {
+      adventureLevel.value = 0
+      seenIds.value = new Set()
+    }
   } catch (e:any) {
     errorMsg.value = e?.message ?? '判定に失敗しました'
   }
 }
 
-/* ===================== 作問（登録） ===================== */
-const title = ref('')
-const choices = ref<Choice[]>([
+// リセットして新しいゲームを開始
+function resetAndPlay() {
+  adventureLevel.value   = 0
+  seenIds.value          = new Set()
+  data.value             = null
+  result.value           = null
+  selectedChoiceId.value = null
+  fetchRandom()
+}
+
+// ===================== 作問（登録） =====================
+const title     = ref('')
+const choices   = ref<Choice[]>([
   { body: '', is_correct: true  },
   { body: '', is_correct: false },
   { body: '', is_correct: false },
   { body: '', is_correct: false },
 ])
-const creating = ref(false)
+const creating  = ref(false)
 const createMsg = ref<string | null>(null)
 
 function markCorrect(idx:number) {
-  choices.value = choices.value.map((c,i)=> ({ ...c, is_correct: i===idx }))
+  choices.value = choices.value.map((c,i) => ({ ...c, is_correct: i === idx }))
 }
 
 function validateCreate(): string | null {
   if (title.value.trim() === '') return 'タイトルは必須です'
   if (choices.value.length !== 4) return '選択肢は4件です'
-  for (let i=0;i<4;i++){
-    if (choices.value[i].body.trim() === '') return `選択肢${i+1}は必須です`
+  for (let i = 0; i < 4; i++) {
+    if ((choices.value[i]?.body ?? '').trim() === '') return `選択肢${i+1}は必須です`
   }
-  const correct = choices.value.filter(c=>c.is_correct).length
+  const correct = choices.value.filter(c => c.is_correct).length
   if (correct !== 1) return '正解は1つだけにしてください'
   return null
 }
@@ -127,14 +178,12 @@ async function submitCreate() {
   try {
     const r = await fetch(`${API}/api/questions/create`, {
       method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ title: title.value, choices: choices.value })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title.value, choices: choices.value }),
     })
     if (!r.ok) throw new Error(`API ${r.status}`)
-    const data = await r.json()
-    createMsg.value = `作成しました（ID: ${data.id}）`
-
-    // クリアしてもう一問作れるように
+    const d = await r.json()
+    createMsg.value = `作成しました（ID: ${d.id}）`
     title.value = ''
     choices.value = [
       { body: '', is_correct: true  },
@@ -156,12 +205,14 @@ watch(tab, (v) => {
 
 <template>
   <div class="millionaire">
-  <!-- 画面サイズに依存しない中央フレーム -->
     <div class="frame">
+
       <!-- 左上 HUD -->
       <div class="hud-left">
         <div class="trial">T R I A L</div>
-        <div class="money-badge"><span class="money-text">¥100,000,000,000</span></div>
+        <div class="money-badge">
+          <span class="money-text">{{ formatMoney(currentMoney) }}</span>
+        </div>
         <nav class="lifelines">
           <button :class="{active: tab==='play'}"   @click="tab='play'">プレイ</button>
           <button :class="{active: tab==='create'}" @click="tab='create'">作問</button>
@@ -169,11 +220,13 @@ watch(tab, (v) => {
         </nav>
       </div>
 
-      <!-- ======= プレイ ======= -->
+      <!-- ======= プレイ（アドベンチャーモード） ======= -->
       <section v-if="tab==='play'" class="stage bottom">
-        <div class="row ctr">
-          <button class="primary" @click="fetchRandom" :disabled="loading">
-            {{ loading ? '読み込み中…' : 'ランダムで1問' }}
+
+        <!-- 問題未表示のとき：スタートボタン -->
+        <div v-if="!data" class="row ctr">
+          <button class="primary start-btn" @click="fetchRandom" :disabled="loading">
+            {{ loading ? '読み込み中…' : 'スタート！' }}
           </button>
         </div>
 
@@ -184,11 +237,11 @@ watch(tab, (v) => {
 
           <ul class="answers">
             <li v-for="(c,i) in data.choices" :key="c.id">
-              <!-- ダイヤ形ボタン -->
               <button
                 class="diamond"
-                :class="{ selected: selectedChoiceId===c.id }"
-                @click="selectedChoiceId = c.id"
+                :class="{ selected: selectedChoiceId === c.id }"
+                :disabled="result != null"
+                @click="result == null && (selectedChoiceId = c.id)"
               >
                 <span class="label">{{ 'ABCD'[i] }}</span>
                 <span class="text">{{ c.body }}</span>
@@ -196,21 +249,52 @@ watch(tab, (v) => {
             </li>
           </ul>
 
-          <div class="row ctr">
-            <button class="primary" @click="checkAnswer" :disabled="selectedChoiceId==null">
+          <!-- 回答前 -->
+          <div v-if="!result" class="row ctr">
+            <button class="primary" @click="checkAnswer" :disabled="selectedChoiceId == null">
               ファイナルアンサー？
             </button>
           </div>
 
-          <p v-if="result" class="result">
-            <strong v-if="result.correct" class="ok">正解！</strong>
-            <strong v-else class="ng">残念…</strong>
-            <span v-if="result.answer">&nbsp;（正解：{{ result.answer.body }}）</span>
-          </p>
+          <!-- 結果表示後 -->
+          <template v-if="result">
+            <p class="result">
+              <strong v-if="result.correct" class="ok">正解！</strong>
+              <strong v-else class="ng">残念…</strong>
+              <span v-if="result.answer">&nbsp;（正解：{{ result.answer.body }}）</span>
+            </p>
+            <div class="row ctr">
+              <!-- 完全制覇 -->
+              <button
+                v-if="isMaxLevel && result.correct"
+                class="primary win-btn"
+                @click="resetAndPlay"
+              >
+                完全制覇！もう一度挑戦
+              </button>
+              <!-- 正解 → 次へ -->
+              <button
+                v-else-if="result.correct"
+                class="primary"
+                @click="fetchRandom"
+                :disabled="loading"
+              >
+                {{ loading ? '読み込み中…' : '次の問題へ →' }}
+              </button>
+              <!-- 不正解 → リセット -->
+              <button
+                v-else
+                class="primary retry-btn"
+                @click="resetAndPlay"
+                :disabled="loading"
+              >
+                {{ loading ? '読み込み中…' : 'もう一度最初から' }}
+              </button>
+            </div>
+          </template>
         </div>
 
         <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
-        <p class="hint">まずは右上のボタンで「プレイ」を選び、「ランダムで1問」を押してね。</p>
       </section>
 
       <!-- ======= 作問 ======= -->
@@ -244,7 +328,7 @@ watch(tab, (v) => {
           <h2>問題一覧</h2>
           <div class="tools">
             <button @click="fetchQuestions" :disabled="loadingList">再読み込み</button>
-            <span class="muted">{{ total }}件</span>
+            <span class="muted">全 {{ total }} 件</span>
           </div>
         </div>
 
@@ -270,7 +354,15 @@ watch(tab, (v) => {
         </div>
 
         <p v-else class="hint">まだ問題がありません。</p>
+
+        <!-- ページネーション -->
+        <div v-if="totalPages > 1" class="pagination">
+          <button @click="prevPage" :disabled="!hasPrev || loadingList">← 前へ</button>
+          <span class="page-info">{{ currentPage }} / {{ totalPages }} ページ</span>
+          <button @click="nextPage" :disabled="!hasNext || loadingList">次へ →</button>
+        </div>
       </section>
+
     </div>
   </div>
 </template>
@@ -291,10 +383,9 @@ body::before{
 }
 .frame{
   width: min(1120px, 92vw);
-  margin: 0 auto;             /* 画面中央に配置 */
+  margin: 0 auto;
   min-height: 100vh;
-  position: relative;         /* 基準 */
-  /* ← HUD を fixed にするので、下の内容が HUD に隠れないよう上に余白を確保 */
+  position: relative;
   padding-top: 120px;
 }
 </style>
@@ -303,25 +394,14 @@ body::before{
 /* ========== 全体 ========== */
 .millionaire{
   min-height: 100vh;
-  /* ← 背景は body に任せるので透明に */
   background: transparent;
   color:#e7ebff;
   padding: 24px;
   position: relative;
   font-family: system-ui,-apple-system,Roboto;
 }
-.brand{
-  position:absolute; left:20px; top:12px;
-  font-size:18px; letter-spacing:.03em; opacity:.9;
-  mix-blend-mode: screen; /* 背景に馴染ませる */
-}
 
-/* ========== 右上HUD ========== */
-.hud-right{
-  position: absolute; top:10px; right:16px;
-  display:flex; align-items:center; gap:10px;
-  z-index: 10;
-}
+/* ========== 左上HUD ========== */
 .hud-left{
   position: fixed;
   top: 12px;
@@ -335,16 +415,17 @@ body::before{
   text-shadow:0 0 8px rgba(80,120,255,.55);
   font-size: 24px
 }
-/* 賞金バッジ（ダイヤ） */
+
+/* 賞金バッジ */
 .money-badge{
   position: relative; height: 44px;
-  /* 横に広がり過ぎないよう適度に制限 */
   width: clamp(280px, 60%, 520px);
-  padding: 0 0px;
+  padding: 0;
   display:flex; align-items:center; justify-content:center;
   background: linear-gradient(180deg,#2b2f55,#1f2446);
   border:1px solid #5a6bff33; border-radius: 12px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 28px rgba(0,0,0,.35);
+  transition: box-shadow .3s ease;
 }
 .money-badge::before,.money-badge::after{
   content:""; position:absolute; top:50%; width:26px; height:26px;
@@ -362,15 +443,10 @@ body::before{
   text-shadow: 0 0 12px rgba(255,220,120,.45), 0 0 30px rgba(255,200,90,.25);
   letter-spacing:.02em; filter: drop-shadow(0 2px 0 rgba(0,0,0,.35));
   font-size: 24px;
+  transition: font-size .15s ease;
 }
-/* 右上の小タブ */
-/* .tabs.compact{ display:flex; gap:8px; }
-.tabs.compact button{
-  padding:8px 12px; border-radius:10px; font-size:13px;
-  background:#0f1a3a; color:#e7ebff; border:1px solid #2a3f82;
-}
-.tabs.compact button.active{ background:#1a2b5e; border-color:#4b66c6; } */
-/* === 楕円のボタン（耳なし・横並び） === */
+
+/* ナビ */
 .lifelines{
   display:flex; gap:12px; margin-top:6px; padding-left:4px;
 }
@@ -402,35 +478,61 @@ body::before{
 
 /* ========== プレイ面 ========== */
 .stage{
-    margin: 120px auto 40px;
-    width: 100%;
+  margin: 120px auto 40px;
+  width: 100%;
 }
 .row{ margin:14px 0; }
 .row.ctr{ display:flex; justify-content:center; }
+
+/* ボタン共通 */
 .primary{
   background:linear-gradient(180deg,#1a56ff,#0d2ebd);
   border:1px solid #4d73ff; color:#fff; padding:10px 16px; border-radius:12px;
   box-shadow:0 6px 18px rgba(23,70,255,.25);
+  font-weight: 700; font-size: 15px;
+  transition: filter .15s ease, transform .06s ease;
+}
+.primary:hover:not(:disabled){ filter: brightness(1.1); }
+.primary:active:not(:disabled){ transform: translateY(1px); }
+.primary:disabled{ opacity: .5; cursor: default; }
+
+/* スタートボタン（少し大きめ） */
+.start-btn{
+  padding: 14px 32px; font-size: 18px;
+  letter-spacing: .06em;
+  box-shadow:0 8px 24px rgba(23,70,255,.35);
 }
 
-/* ⬇⬇ ここが“囲いを消す”ポイント ⬇⬇ */
-/* 盤面コンテナの背景/枠をなくして透過 */
+/* もう一度ボタン（赤系） */
+.retry-btn{
+  background: linear-gradient(180deg,#7a1a1a,#4a0f0f);
+  border-color: #c43d3d;
+  box-shadow: 0 6px 18px rgba(180,30,30,.25);
+}
+
+/* 完全制覇ボタン（金系） */
+.win-btn{
+  background: linear-gradient(180deg,#c89213,#8a5d05);
+  border-color: #ffd164;
+  color: #0b0b0b;
+  box-shadow: 0 6px 20px rgba(255,206,77,.4);
+}
+
+/* 盤面 */
 .board{ background: transparent; border: none; padding: 0; }
 
-/* 問題文帯（これは残す＝青い帯） */
+/* 問題文帯 */
 .prompt{
-  /* 問題帯もフレーム幅に合わせて伸び過ぎない */
   max-width: 980px;
   margin: 0 auto 18px;
   text-align:center; font-weight:800; font-size:22px; letter-spacing:.02em;
-  /* background: linear-gradient(180deg,#1f3f9c,#122a70); */
   background: #000;
   border:1px solid #3a57b7; color:#ffffff; padding:14px 18px; border-radius:12px;
   box-shadow:0 8px 24px rgba(19,40,120,.35) inset, 0 8px 28px rgba(0,0,0,.25);
   margin-bottom: 18px;
 }
 
-/* ダイヤの選択肢（そのまま残す） */
+/* 選択肢 */
 .answers{
   list-style:none; padding:0; margin:0 0 10px;
   max-width: 980px;
@@ -447,13 +549,16 @@ body::before{
   border:1px solid #3a57b7;
   clip-path: polygon(6% 0, 94% 0, 100% 50%, 94% 100%, 6% 100%, 0 50%);
   box-shadow: 0 6px 20px rgba(0,0,0,.35), 0 0 0 2px rgba(28,52,130,.4) inset, 0 14px 40px rgba(14,31,78,.35) inset;
+  transition: filter .1s ease;
 }
-.diamond:hover{ filter: brightness(1.08); }
+.diamond:hover:not(:disabled){ filter: brightness(1.08); }
+.diamond:disabled{ cursor: default; }
 .diamond.selected{
   background: linear-gradient(180deg,#c89213,#8a5d05);
   border-color:#ffd164; color:#0b0b0b;
   box-shadow: 0 8px 26px rgba(255,206,77,.35), 0 0 0 2px rgba(255,222,140,.45) inset;
 }
+
 /* ABCDの小ダイヤ */
 .diamond .label{
   position:absolute; left:10px; top:50%; transform:translateY(-50%);
@@ -464,12 +569,19 @@ body::before{
 }
 .diamond .text{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-.error{ color:#ff8a8a; } .hint{ color:#b7c6ec; }
+/* 結果 */
+.result{
+  text-align: center; font-size: 20px; font-weight: 700;
+  margin: 12px 0 4px;
+}
+.ok{ color:#6dffa0; text-shadow: 0 0 12px rgba(80,255,140,.5); }
+.ng{ color:#ff6b6b; text-shadow: 0 0 12px rgba(255,80,80,.5); }
 
-/* ========== 作問/管理（枠を消して透過） ========== */
+.error{ color:#ff8a8a; text-align: center; }
+
+/* ========== 作問/管理 ========== */
 .panel{
   max-width: 980px;
-  /* 上側の余白は .frame の padding-top に任せる */
   margin: 24px auto 40px;
   background: transparent; border: none; padding: 0;
 }
@@ -481,82 +593,44 @@ body::before{
 .choice-row{ display:flex; align-items:center; gap:10px; margin:8px 0; }
 .choice-row input:not([type="radio"]){ flex:1; padding:10px 12px; border-radius:10px; border:1px solid #31478f; background:#0a1430; color:#e7ebff; }
 .radio{ display:flex; align-items:center; gap:6px; color:#cdd8ff; }
-.msg{ color:#a7f3d0; }
+.msg{ color:#a7f3d0; text-align: center; }
 
-/* 管理テーブル（見やすさのためだけ薄い線） */
+/* 管理テーブル */
 .table-wrap{ overflow:auto; }
 .tbl{ width:100%; border-collapse:collapse; }
 .tbl th, .tbl td{ border:1px solid rgba(42,63,130,.5); padding:8px 10px; text-align:left; background: rgba(4,8,20,.45); }
 .tbl thead th{ background: rgba(10,18,45,.75); }
 button.danger{ background:#3a0f1a; border:1px solid #7a1f2f; color:#ffd4d8; border-radius:10px; padding:6px 10px; }
-/* 縦タブ */
-.tabs.vertical{ display:flex; flex-direction:column; gap:8px; width: 88px; }
-.tabs.vertical button{
-  width:100%; padding:8px 0; border-radius:10px;
-  background:#0f1a3a; color:#e7ebff; border:1px solid #2a3f82;
-}
-.tabs.vertical button.active{ background:#1a2b5e; border-color:#4b66c6; }
 
-/* ===== プレイ面を“画面下”に固定 ===== */
+/* テーブルスクロール */
+.table-wrap{ overflow-y: auto; max-height: 60vh; }
+
+/* ページネーション */
+.pagination{
+  display: flex; align-items: center; justify-content: center;
+  gap: 16px; margin-top: 16px;
+}
+.pagination button{
+  padding: 8px 18px; border-radius: 10px; font-weight: 700;
+  background: #0f1a3a; color: #e7ebff; border: 1px solid #2a3f82;
+  transition: filter .15s ease;
+}
+.pagination button:hover:not(:disabled){ filter: brightness(1.15); }
+.pagination button:disabled{ opacity: .35; cursor: default; }
+.page-info{ color: #9fb6ff; font-size: 14px; min-width: 80px; text-align: center; }
+
+/* プレイ面を画面下に固定 */
 .stage.bottom{
   position: fixed; left:50%; transform: translateX(-50%);
-  bottom: 6vh; /* 好みで 4〜10vh に調整 */
+  bottom: 6vh;
   width: min(980px, 92vw);
-  margin:0;  /* 上マージン不要 */
+  margin:0;
 }
-/* 問題帯・選択肢まわりの間隔を下部用に微調整 */
 .prompt{ margin: 12px 0 16px; }
 .answers{ margin: 0 0 12px; }
 .row{ margin: 10px 0; }
 
-
-.money-badge{ width: var(--hudWidth); }      /* バッジの横幅を固定 */
-.tabs.vertical{
-  width: var(--hudWidth);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.tabs.vertical button{
-  display:block;
-  width:100%;
-  height: 40px;                               /* 高さを統一 */
-  line-height: 40px;
-  text-align:center;
-  box-sizing: border-box;
-  border-radius: 10px;
-  border:1px solid #2a3f82;
-  background: linear-gradient(180deg,#0f1a3a,#0b1530);
-  color:#e7ebff;
-  letter-spacing:.04em;
-  transition: filter .15s ease, transform .02s ease, border-color .2s ease;
-}
-.tabs.vertical button:hover{
-  filter: brightness(1.08);
-  border-color:#4b66c6;
-}
-.tabs.vertical button:active{ transform: translateY(1px); }
-.tabs.vertical button.active{
-  background: linear-gradient(180deg,#1a2b5e,#132457);
-  border-color:#4b66c6;
-  box-shadow: 0 0 12px rgba(75,102,198,.25) inset;
-}
-.tabs.vertical button{
-  position: relative;
-  /* …上の指定はそのまま… */
-}
-.tabs.vertical button::before,
-.tabs.vertical button::after{
-  content:""; position:absolute; top:50%; width:14px; height:14px;
-  transform: translateY(-50%) rotate(45deg);
-  background: linear-gradient(180deg,#1a2b5e,#0f1a3a);
-  border:1px solid #2a3f82; opacity:.8;
-}
-.tabs.vertical button::before{ left:-7px;  border-right:none; }
-.tabs.vertical button::after { right:-7px; border-left:none;  }
-
-/* 小さめ画面の微調整 */
+/* 小さめ画面 */
 @media (max-width: 640px){
   .answers{ grid-template-columns: 1fr; }
   .money-badge{ width: clamp(240px, 80vw, 440px); }
